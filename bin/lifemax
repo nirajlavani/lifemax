@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""lifemax CLI bridge.
+
+Posts a free-form line of text to the local lifemax dispatch endpoint.
+Reads SERVER_HOST / SERVER_PORT / LIFEMAX_DISPATCH_TOKEN from `.env`
+in the project root (resolved relative to this file).
+
+Stdlib-only on purpose so it works from any terminal or Claude Code
+session without requiring the project's venv.
+
+Usage:
+    lifemax "buy milk by tomorrow 5pm, urgent"
+    echo "what are today's goals?" | lifemax -
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv() -> dict[str, str]:
+    env_path = _project_root() / ".env"
+    if not env_path.exists():
+        return {}
+    out: dict[str, str] = {}
+    try:
+        for raw in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            value = value.strip().strip('"').strip("'")
+            out[key.strip()] = value
+    except OSError:
+        return {}
+    return out
+
+
+def _config_value(env: dict[str, str], key: str, default: str = "") -> str:
+    return os.environ.get(key) or env.get(key) or default
+
+
+def _read_text(args: list[str]) -> str:
+    if args and args[0] == "-":
+        return sys.stdin.read().strip()
+    return " ".join(args).strip()
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] in {"-h", "--help"}:
+        sys.stdout.write(__doc__ or "")
+        return 0
+    text = _read_text(argv[1:])
+    if not text:
+        sys.stderr.write("error: no text provided\n")
+        return 2
+    if len(text) > 1500:
+        sys.stderr.write("error: text too long (>1500 chars)\n")
+        return 2
+
+    env = _load_dotenv()
+    host = _config_value(env, "SERVER_HOST", "127.0.0.1")
+    port = _config_value(env, "SERVER_PORT", "8765")
+    token = _config_value(env, "LIFEMAX_DISPATCH_TOKEN", "")
+    if not token:
+        sys.stderr.write("error: LIFEMAX_DISPATCH_TOKEN not set in .env\n")
+        return 2
+
+    url = f"http://{host}:{port}/api/dispatch"
+    payload = json.dumps({"text": text}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Lifemax-Token": token,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - localhost http
+            body = resp.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(body)
+                msg = data.get("message") or body
+            except json.JSONDecodeError:
+                msg = body
+            sys.stdout.write(msg.rstrip() + "\n")
+            return 0
+    except urllib.error.HTTPError as exc:
+        try:
+            err_body = exc.read().decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            err_body = ""
+        sys.stderr.write(f"http {exc.code}: {err_body or exc.reason}\n")
+        return 1
+    except urllib.error.URLError as exc:
+        sys.stderr.write(f"connection failed: {exc.reason}\n")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

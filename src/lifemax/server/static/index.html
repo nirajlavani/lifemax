@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=1600, initial-scale=1.0" />
+    <title>lifemax</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <main id="grid">
+
+        <!-- =====================================================
+             Top strip — single panel: brand | clock | date | weather
+             ===================================================== -->
+        <header id="topbar">
+          <section class="topbar__group topbar__group--brand" aria-label="lavani labs">
+            <div class="topbar__eyebrow">studio</div>
+            <div class="brand">
+              <span class="brand__mark" aria-hidden="true">L</span>
+              <span class="brand__wordmark">
+                <span class="brand__name">Lavani <em>Labs</em></span>
+                <span class="brand__tag">life · max · dashboard</span>
+              </span>
+            </div>
+          </section>
+
+          <div class="topbar__divider" aria-hidden="true"></div>
+
+          <section class="topbar__group topbar__group--clock" aria-label="time">
+            <div class="topbar__eyebrow">now</div>
+            <div class="topbar__primary">
+              <span class="clock__time" id="clock-time">--:--</span>
+              <span class="clock__meridiem" id="clock-meridiem">--</span>
+            </div>
+            <div class="topbar__meta">
+              <span class="clock__zone" id="clock-zone">EST</span>
+            </div>
+          </section>
+
+          <div class="topbar__divider" aria-hidden="true"></div>
+
+          <section class="topbar__group topbar__group--date" aria-label="date">
+            <div class="topbar__eyebrow">today</div>
+            <div class="topbar__primary">
+              <span class="date__long" id="date-long">—</span>
+            </div>
+            <div class="topbar__meta date__meta">
+              <span
+                class="nudge nudge--later"
+                id="nudge-pill"
+                data-tier="later"
+                title="next deadline"
+              >nothing due</span>
+              <span class="date__chip" id="date-chip">0 due today</span>
+            </div>
+            <div class="date__nudge-eyebrow">NEXT &middot; 10</div>
+            <div class="date__nudge-target" id="nudge-target" hidden></div>
+          </section>
+
+          <div class="topbar__divider" aria-hidden="true"></div>
+
+          <section class="topbar__group topbar__group--weather" aria-label="weather">
+            <div class="topbar__eyebrow">weather</div>
+            <div class="topbar__primary weather__primary">
+              <span class="weather__temp" id="weather-temp">--°</span>
+              <span class="weather__icon" id="weather-icon" aria-hidden="true"></span>
+              <span class="weather__label" id="weather-label">—</span>
+            </div>
+            <div class="topbar__meta">
+              <span class="weather__meta" id="weather-meta">—</span>
+            </div>
+          </section>
+        </header>
+
+        <!-- =====================================================
+             LEFT column · kanban → 2-week calendar
+             (FOCUS · 00 cell was removed in BRAND · 12 — the kanban
+             top card already encodes "what to do next" via the
+             tier stripe; the Pomodoro timer band moves into the
+             kanban footer so it stays accessible without its own cell.)
+             ===================================================== -->
+        <div class="column" id="col-kanban">
+          <section class="quadrant" id="q-kanban" data-accent="flow" aria-label="kanban">
+            <header class="q-header">
+              <div class="q-header__eyebrow">FLOW · 01</div>
+              <h2 class="q-header__title">kanban <em>board</em></h2>
+              <div class="q-header__chip" id="kanban-chip">0 today</div>
+            </header>
+
+            <div class="lane lane--todo" data-status="todo">
+              <div class="lane__head">
+                <span class="lane__dot"></span>
+                <span class="lane__label">to do</span>
+                <span class="lane__count" data-count-for="todo">0</span>
+              </div>
+              <div class="lane__cards" data-cards-for="todo"></div>
+            </div>
+
+            <div class="lane lane--inprog" data-status="in_progress">
+              <div class="lane__head">
+                <span class="lane__dot"></span>
+                <span class="lane__label">in progress</span>
+                <span class="lane__count" data-count-for="in_progress">0</span>
+              </div>
+              <div class="lane__cards" data-cards-for="in_progress"></div>
+            </div>
+
+            <div class="lane lane--done" data-status="done">
+              <div class="lane__head">
+                <span class="lane__dot"></span>
+                <span class="lane__label">done</span>
+                <span class="lane__count" data-count-for="done">0</span>
+              </div>
+              <div class="lane__cards" data-cards-for="done"></div>
+            </div>
+
+            <div class="timer" id="timer" hidden>
+              <div class="timer__row">
+                <span class="timer__phase" id="timer-phase">FOCUS</span>
+                <span class="timer__label" id="timer-label"></span>
+              </div>
+              <div class="timer__count" id="timer-count">25:00</div>
+              <div class="timer__meta" id="timer-meta">running</div>
+            </div>
+          </section>
+
+          <section class="quadrant" id="q-calendar" data-accent="schedule" aria-label="2 week calendar">
+            <header class="q-header">
+              <div class="q-header__eyebrow">SCHEDULE · 04</div>
+              <h2 class="q-header__title">2-week <em>calendar</em></h2>
+              <div class="q-header__chip" id="cal-chip">0 scheduled</div>
+            </header>
+
+            <div class="cal" id="cal">
+              <div class="cal__dow" id="cal-dow" aria-hidden="true"></div>
+              <div class="cal__grid" id="cal-grid"></div>
+              <div class="cal__notice" id="cal-notice" hidden></div>
+            </div>
+          </section>
+        </div>
+
+        <!-- =====================================================
+             RIGHT column · Last dispatch (top, thin)
+                          · AI feed (mid-top, narrow)
+                          · Daily checklist (mid-bottom)
+                          · Weekly retro (bottom · Sunday only)
+
+             DISPATCH · 12 surfaces the most recent prompt that arrived
+             via Telegram or `./bin/lifemax`, so the user can confirm
+             "yes, that one landed" without scanning the kanban or
+             squinting at the bottom-left ribbon.
+
+             The retro is a real grid cell, not an overlay, so it
+             never collides with the calendar or checklist. The
+             column collapses when retro is hidden (#col-right :has).
+             ===================================================== -->
+        <div class="column" id="col-right">
+          <section class="quadrant" id="q-dispatch" data-accent="dispatch" aria-label="last dispatch">
+            <header class="q-header">
+              <div class="q-header__eyebrow">DISPATCH · 12</div>
+              <h2 class="q-header__title">last <em>command</em></h2>
+              <div class="q-header__chip" id="dispatch-chip">—</div>
+            </header>
+
+            <div class="dispatch" id="dispatch" data-state="empty">
+              <p class="dispatch__text" id="dispatch-text">no prompts yet</p>
+              <div class="dispatch__meta">
+                <span class="dispatch__verb" id="dispatch-verb">—</span>
+                <span class="dispatch__sep" aria-hidden="true">·</span>
+                <span class="dispatch__subject" id="dispatch-subject">awaiting input</span>
+                <span class="dispatch__age" id="dispatch-age">—</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="quadrant" id="q-feed" data-accent="signal" aria-label="ai feed">
+            <header class="q-header">
+              <div class="q-header__eyebrow">SIGNAL · 02</div>
+              <h2 class="q-header__title">ai <em>feed</em></h2>
+              <div class="q-header__chip" id="news-chip">0 items</div>
+            </header>
+
+            <article class="slide" id="slide" data-state="empty">
+              <div class="slide__media" id="slide-media" aria-hidden="true">
+                <div class="slide__placeholder" id="slide-placeholder">·</div>
+                <img class="slide__img" id="slide-img" alt="" decoding="async" referrerpolicy="no-referrer" />
+                <div class="slide__media-shade"></div>
+              </div>
+              <div class="slide__body">
+                <div class="slide__source" id="slide-source">—</div>
+                <div class="slide__title" id="slide-title">awaiting signal</div>
+                <p class="slide__desc" id="slide-desc">—</p>
+                <div class="slide__footer">
+                  <div class="slide__dots" id="slide-dots" aria-hidden="true"></div>
+                  <div class="slide__counter" id="slide-counter">0 / 0</div>
+                </div>
+              </div>
+              <div class="slide__progress" aria-hidden="true">
+                <div class="slide__progress-bar" id="slide-progress"></div>
+              </div>
+            </article>
+          </section>
+
+          <section class="quadrant" id="q-daily" data-accent="daily" aria-label="daily checklist">
+            <header class="q-header">
+              <div class="q-header__eyebrow">DAILY · 03</div>
+              <h2 class="q-header__title">daily <em>checklist</em></h2>
+              <div class="q-header__chip" id="daily-chip">0 / 0</div>
+            </header>
+
+            <div class="daily" id="daily">
+              <div class="daily__grid" id="daily-grid"></div>
+              <div class="daily__empty" id="daily-empty" hidden>
+                no daily items yet — add one with <code>./bin/lifemax "add daily exercise"</code>
+              </div>
+            </div>
+          </section>
+
+          <section class="quadrant" id="q-retro" data-accent="retro" aria-label="weekly retro" hidden>
+            <header class="q-header">
+              <div class="q-header__eyebrow">RETRO · 07</div>
+              <h2 class="q-header__title">how was <em>your week</em></h2>
+              <div class="q-header__chip" id="retro-chip">sunday</div>
+            </header>
+            <div class="retro__stats">
+              <div class="retro__stat">
+                <span class="retro__stat-value" id="retro-tasks">0</span>
+                <span class="retro__stat-label">tasks shipped</span>
+              </div>
+              <div class="retro__stat">
+                <span class="retro__stat-value" id="retro-habits">0%</span>
+                <span class="retro__stat-label">habit hit rate</span>
+              </div>
+              <div class="retro__stat">
+                <span class="retro__stat-value" id="retro-focus">0</span>
+                <span class="retro__stat-label">focus blocks</span>
+              </div>
+            </div>
+            <div class="retro__strip" id="retro-strip" aria-label="last 7 days"></div>
+            <div class="retro__caption" id="retro-caption">no notable runs this week</div>
+          </section>
+        </div>
+
+      </main>
+
+      <div id="conn-pill" class="conn-pill conn-pill--off">offline</div>
+
+      <aside id="ribbon" class="ribbon" aria-label="recent dispatches" hidden>
+        <div class="ribbon__eyebrow">RECENT · 09</div>
+        <ul class="ribbon__list" id="ribbon-list"></ul>
+      </aside>
+
+      <aside id="health" class="health" aria-label="system health vitals" hidden>
+        <span class="health__eyebrow">VITALS · 08</span>
+        <ul class="health__row" id="health-row" role="status" aria-live="polite"></ul>
+      </aside>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

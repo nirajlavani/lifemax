@@ -1,0 +1,1799 @@
+/* ===========================================================
+   lifemax dashboard — display-only, optimized for 1600 x 1066.
+
+   Macro layout (BRAND · 12):
+     row 1 (~84px):  topbar  — clock | date | weather  (slim band)
+     row 2 (1fr):    LEFT col (1.28fr)  |  RIGHT col (0.72fr)
+       LEFT  = kanban → calendar
+                (Pomodoro timer band sits inside the kanban footer)
+       RIGHT = dispatch \u00b7 last command (96px)
+             → ai feed (narrower than v1)
+             → daily checklist
+             → weekly retro (Sunday only, collapses on other days)
+
+   Per-cell tinting:
+     Each quadrant declares a `--cell-tint` (panel wash) and a
+     `--cell-accent` (eyebrow + divider). Tints stay inside the
+     existing warm-mid-tone palette family so the dashboard reads
+     as one piece, not a colour-blocked mood board.
+   =========================================================== */
+
+:root {
+  --bg: #0a0a0a;
+  --panel: #141414;
+  --panel-2: #1a1a1a;
+  --line: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.10);
+
+  --ink: #f5efe7;
+  --ink-dim: rgba(245, 239, 231, 0.62);
+  --ink-faint: rgba(245, 239, 231, 0.32);
+
+  /* Brand palette — additive only. Six tonal accents keep the dashboard
+     cohesive while letting each quadrant carry its own weight. */
+  --cream: #efe5d4;
+  --cream-ink: #1a1815;
+  --red: #b04a3a;
+  --red-deep: #7c2c20;
+  --red-ink: #f5e6dc;
+  --blue: #5a6f96;
+  --blue-deep: #3d4d6b;
+  --blue-ink: #eef0f6;
+  --sage: #6e8f72;       /* daily / habit */
+  --violet: #7a6f9c;     /* signal / feed */
+  --amber: #c89a4a;      /* retro / reflection */
+
+  /* Per-cell tints (panel wash) & accents (eyebrow + accent line).
+     Always layered over var(--panel) so the underlying surface stays
+     consistent. Tints are intentionally subtle — they read as a hint,
+     not a wallpaper. */
+  --tint-focus:    rgba(176, 74, 58, 0.16);
+  --tint-flow:     rgba(239, 229, 212, 0.06);
+  --tint-schedule: rgba(90, 111, 150, 0.14);
+  --tint-signal:   rgba(122, 111, 156, 0.16);
+  --tint-daily:    rgba(110, 143, 114, 0.14);
+  --tint-retro:    rgba(200, 154, 74, 0.14);
+
+  --accent-focus:    var(--red);
+  --accent-flow:     var(--cream);
+  --accent-schedule: var(--blue);
+  --accent-signal:   var(--violet);
+  --accent-daily:    var(--sage);
+  --accent-retro:    var(--amber);
+
+  --r-xl: 22px;
+  --r-lg: 18px;
+  --r-md: 12px;
+  --r-sm: 8px;
+
+  --gap-macro: 16px;
+  --gap-q: 12px;
+  --pad-q: 18px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "ss01", "tnum";
+  overflow: hidden;
+  height: 100%;
+}
+
+#stage {
+  position: fixed; inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+}
+
+#grid {
+  width: 1600px;
+  height: 1066px;
+  padding: 22px;
+  display: grid;
+  grid-template-columns: 1.28fr 0.72fr;
+  grid-template-rows: 84px 1fr;
+  grid-template-areas:
+    "top    top"
+    "kanban right";
+  gap: var(--gap-macro);
+  background: var(--bg);
+  transform-origin: center center;
+}
+
+#topbar     { grid-area: top; }
+#col-kanban { grid-area: kanban; }
+#col-right  { grid-area: right; }
+
+/* LEFT column · kanban → calendar (focus cell removed in BRAND · 12) */
+#col-kanban {
+  display: grid;
+  grid-template-rows: minmax(0, 1.15fr) minmax(0, 0.95fr);
+  gap: var(--gap-macro);
+  min-height: 0;
+  min-width: 0;
+}
+
+/* RIGHT column · 0.72fr · dispatch → ai feed → daily checklist → weekly retro
+   The retro row collapses to 0 (and `gap` collapses with it via the
+   :has() selector below) when the server says it's not Sunday.
+
+   BRAND · 12 (revised again) — the dispatch cell needs ~120px to fit a
+   header + 1-2 line italic prompt + meta row without crushing. The
+   daily checklist is capped at 9 items in a 3\u00d73 grid (product
+   constraint), so ~250px is plenty. The AI feed switched to a
+   2-column layout (square image left, title/desc right), which means
+   it needs less vertical room than the previous stacked design — we
+   give the freed-up rows to the retro card so the day-strip + caption
+   stop colliding. */
+#col-right {
+  display: grid;
+  grid-template-rows:
+    118px                /* DISPATCH \u00b7 12 (taller — fits italic prompt + meta) */
+    minmax(0, 1.15fr)    /* AI feed (2-column layout, image left + text right) */
+    minmax(0, 0.85fr)    /* daily checklist (3\u00d73 grid, never more) */
+    minmax(0, 1.05fr);   /* weekly retro (Sunday only) — needs room for
+                           stats + day-bars + caption without overlap */
+  gap: var(--gap-macro);
+  min-height: 0;
+  min-width: 0;
+}
+
+/* When the retro card is hidden (any non-Sunday), let the feed +
+   checklist absorb the freed-up rows. The dispatch row stays fixed
+   so the "last command" cell never grows distractingly large. */
+#col-right:has(#q-retro[hidden]) {
+  grid-template-rows: 118px minmax(0, 1.0fr) minmax(0, 1.0fr);
+}
+
+/* ===========================================================
+   Top strip — single panel, three column groups + dividers
+   =========================================================== */
+
+/* BRAND · 12 — slim top bar.
+   Previous version was 142px tall with 64px serif numerals; that was eating
+   real estate the kanban + calendar + retro all wanted. Now ~84px with
+   compact serif numerals and the next-due hint folded into the meta row. */
+/* BRAND · 13 — the topbar gains a leftmost "Lavani Labs" studio card.
+   The brand track is `auto` so the wordmark dictates its width and never
+   gets squished by the time/date/weather groups. The other tracks were
+   trimmed proportionally so the bar height stays at 84px. */
+#topbar {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 8px 22px;
+  display: grid;
+  grid-template-columns:
+    auto                 /* brand (sized by wordmark) */
+    1px                  /* divider */
+    minmax(0, 0.75fr)    /* clock */
+    1px
+    minmax(0, 1.30fr)    /* date */
+    1px
+    minmax(0, 1.00fr);   /* weather */
+  align-items: stretch;
+  gap: 22px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.topbar__group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.topbar__divider {
+  align-self: stretch;
+  width: 1px;
+  background: var(--line-2);
+}
+
+.topbar__eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.topbar__primary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* --- brand group (Lavani Labs studio mark) ---
+   The brand card visually anchors the dashboard. Layout: a square
+   monogram on the left (the "L"), a wordmark with the studio name +
+   tagline on the right. Cream accent ties it to the FLOW · 01 cell so
+   the eye reads brand → kanban as a single warm column. */
+.topbar__group--brand {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px 0 0;
+  /* Eyebrow ("studio") sits above the row instead of inside it. */
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: auto;
+  row-gap: 4px;
+}
+.topbar__group--brand .topbar__eyebrow { grid-column: 1; grid-row: 1; }
+.topbar__group--brand .brand           { grid-column: 1; grid-row: 2; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(239, 229, 212, 0.18) 0%, rgba(239, 229, 212, 0.04) 100%);
+  border: 1px solid rgba(239, 229, 212, 0.35);
+  color: var(--cream);
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.brand__wordmark {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  gap: 2px;
+}
+
+.brand__name {
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.brand__name em {
+  font-style: italic;
+  color: var(--cream);
+}
+
+.brand__tag {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* --- clock group --- */
+.clock__time {
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.clock__meridiem {
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.clock__zone {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  border: 1px solid var(--line-2);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+/* --- date group --- */
+.date__long {
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 22px;
+  line-height: 1.05;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.date__chip {
+  background: var(--red);
+  color: var(--red-ink);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* --- next-due countdown pill (NEXT · 10) --- */
+.date__meta {
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+  overflow: hidden;
+}
+.date__nudge-target {
+  font-size: 10px;
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.date__nudge-target[hidden] { display: none; }
+/* The dedicated "NEXT · 10" eyebrow + target row was costing height; the
+   nudge pill in the meta row already conveys urgency, so we hide that
+   second eyebrow at this thinner top-bar size. */
+.date__nudge-eyebrow { display: none; }
+
+.nudge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line-2);
+  color: var(--ink-dim);
+  padding: 3px 11px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.nudge::before {
+  content: "";
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+.nudge--later   { color: var(--ink-dim); }
+.nudge--soon    { color: var(--cream);   border-color: rgba(239, 229, 212, 0.32); }
+.nudge--today   { color: var(--red-ink); background: var(--red);      border-color: transparent; }
+.nudge--overdue { color: var(--red-ink); background: var(--red-deep); border-color: transparent; animation: nudge-pulse 1.6s ease-in-out infinite; }
+
+@keyframes nudge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(176, 74, 58, 0); }
+  50%      { box-shadow: 0 0 0 6px rgba(176, 74, 58, 0.18); }
+}
+
+/* --- weather group --- */
+.weather__primary { gap: 12px; }
+.weather__temp {
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--ink);
+}
+.weather__icon {
+  align-self: center;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: rgba(90, 111, 150, 0.22);
+  color: var(--blue-ink);
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+.weather__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  align-self: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weather__meta {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===========================================================
+   Quadrant shell (used by kanban, calendar, feed)
+   =========================================================== */
+
+.quadrant {
+  /* Tint sits as a layer on top of the base panel so the underlying surface
+     stays consistent across cells. Cells that don't set --cell-tint just get
+     the base panel — no surprises. */
+  background:
+    linear-gradient(var(--cell-tint, transparent), var(--cell-tint, transparent)),
+    var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: var(--pad-q);
+  display: grid;
+  gap: var(--gap-q);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Cells with an accent get a thin top stripe in the cell's brand colour.
+   Subtle by design — it's wayfinding, not decoration. */
+.quadrant[data-accent]::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 12px; right: 12px;
+  height: 2px;
+  background: var(--cell-accent, transparent);
+  opacity: 0.55;
+  border-radius: 0 0 2px 2px;
+  pointer-events: none;
+}
+
+.q-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.q-header--accent .q-header__title em { color: var(--red); }
+
+.q-header__eyebrow {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--cell-accent, var(--ink-faint));
+  font-weight: 700;
+}
+.q-header__title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+}
+.q-header__title em {
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+.q-header__chip {
+  align-self: end;
+  background: rgba(255,255,255,0.06);
+  color: var(--ink-dim);
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ===========================================================
+   BRAND · 11 — per-cell tint + accent assignments
+   =========================================================== */
+
+#q-kanban    { --cell-tint: var(--tint-flow);     --cell-accent: var(--accent-flow); }
+#q-calendar  { --cell-tint: var(--tint-schedule); --cell-accent: var(--accent-schedule); }
+#q-feed      { --cell-tint: var(--tint-signal);   --cell-accent: var(--accent-signal); }
+#q-daily     { --cell-tint: var(--tint-daily);    --cell-accent: var(--accent-daily); }
+#q-retro     { --cell-tint: var(--tint-retro);    --cell-accent: var(--accent-retro); }
+/* DISPATCH · 12 reuses the focus brand colour now that FOCUS · 00 is gone. */
+#q-dispatch  { --cell-tint: var(--tint-focus);    --cell-accent: var(--accent-focus); }
+
+/* =====================================================
+   Q1 · KANBAN — three lanes
+   ===================================================== */
+
+#q-kanban {
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-areas:
+    "header header header"
+    "todo   inprog done";
+}
+#q-kanban .q-header     { grid-area: header; }
+#q-kanban .lane--todo   { grid-area: todo; }
+#q-kanban .lane--inprog { grid-area: inprog; }
+#q-kanban .lane--done   { grid-area: done; }
+
+.lane {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lane__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.lane__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); }
+.lane--todo   .lane__dot { background: var(--cream); }
+.lane--inprog .lane__dot { background: var(--blue); }
+.lane--done   .lane__dot { background: var(--sage); }
+
+.lane__count {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+.lane__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
+.lane__cards::-webkit-scrollbar { width: 6px; }
+.lane__cards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+/* =====================================================
+   Q4 · 2-WEEK CALENDAR
+   ===================================================== */
+
+#q-calendar {
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "cal";
+}
+#q-calendar .q-header { grid-area: header; }
+#q-calendar .cal      { grid-area: cal; }
+
+.cal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.cal__dow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.cal__dow span {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-align: center;
+  font-weight: 700;
+}
+
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.cal__day {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 8px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.cal__day--other-month { opacity: 0.7; }
+
+.cal__day--today {
+  background: var(--cream);
+  color: var(--cream-ink);
+  border-color: rgba(0,0,0,0.08);
+}
+.cal__day--today .cal__num,
+.cal__day--today .cal__mon { color: var(--cream-ink); }
+
+.cal__day--past { opacity: 0.42; }
+
+.cal__day--weekend:not(.cal__day--today) {
+  background: rgba(255,255,255,0.02);
+}
+
+.cal__day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cal__num {
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.cal__mon {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+
+.cal__badge {
+  align-self: flex-start;
+  background: var(--red);
+  color: var(--red-ink);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+.cal__day--today .cal__badge { background: var(--red); color: var(--red-ink); }
+
+.cal__pills {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cal__pill {
+  font-size: 10px;
+  line-height: 1.15;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+  color: var(--ink-dim);
+  border-left: 2px solid var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal__pill--high   { border-left-color: var(--red);   color: var(--ink); }
+.cal__pill--medium { border-left-color: var(--cream); }
+.cal__pill--low    { border-left-color: var(--blue); }
+.cal__pill--done   { text-decoration: line-through; opacity: 0.55; }
+.cal__day--today .cal__pill {
+  background: rgba(0,0,0,0.08);
+  color: var(--cream-ink);
+}
+
+/* Calendar EVENT pill — visually distinct from task pills.
+   Filled tint + leading dot, with optional title/time split. */
+.cal__pill--event {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(124, 169, 255, 0.18);
+  color: var(--ink);
+  border-left-color: var(--blue);
+  position: relative;
+}
+.cal__pill--event::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--blue);
+  flex: 0 0 5px;
+}
+.cal__pill--event .cal__pill-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal__pill--event .cal__pill-time {
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+}
+.cal__pill--event-lifemax {
+  background: rgba(245, 200, 120, 0.22);
+  border-left-color: var(--cream);
+}
+.cal__pill--event-lifemax::before { background: var(--cream); }
+
+.cal__day--today .cal__pill--event {
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--cream-ink);
+}
+
+.cal__pill-more {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 0 6px;
+}
+
+.cal__notice {
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  background: rgba(255, 211, 130, 0.10);
+  border: 1px solid rgba(255, 211, 130, 0.35);
+  border-radius: 6px;
+}
+.cal__notice[hidden] { display: none; }
+
+/* =====================================================
+   Q3-bottom · DAILY checklist (3-column auto-reset list)
+   ===================================================== */
+
+#q-daily {
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "daily";
+}
+#q-daily .q-header { grid-area: header; }
+#q-daily .daily    { grid-area: daily; }
+
+.daily {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.daily__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px 8px;
+  align-content: start;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+  padding-right: 2px;
+}
+.daily__grid::-webkit-scrollbar { width: 6px; }
+.daily__grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+.daily__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 6px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  min-width: 0;
+}
+
+.daily__streak {
+  grid-column: 3;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.daily__streak--alive {
+  color: var(--sage);
+}
+.daily__streak--big {
+  color: var(--amber);
+  font-weight: 700;
+}
+.daily__streak-flame {
+  font-style: italic;
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.daily__history {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-top: 4px;
+}
+.daily__history-cell {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.06);
+}
+.daily__history-cell--done {
+  background: var(--sage);
+}
+.daily__history-cell--today {
+  outline: 1px solid var(--accent-daily);
+}
+
+.daily__check {
+  grid-column: 1;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--ink-faint);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.daily__check::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid var(--cream-ink);
+  border-bottom: 2px solid var(--cream-ink);
+  transform: rotate(-45deg) translate(0, -1px);
+  display: none;
+}
+
+.daily__title {
+  grid-column: 2;
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.daily__item--done {
+  background: rgba(110, 143, 114, 0.18);
+  border-color: rgba(110, 143, 114, 0.42);
+}
+.daily__item--done .daily__check {
+  background: var(--sage);
+  border-color: var(--sage);
+}
+.daily__item--done .daily__check::after {
+  border-left-color: #f0f5ee;
+  border-bottom-color: #f0f5ee;
+}
+.daily__item--done .daily__check::after {
+  display: block;
+}
+.daily__item--done .daily__title {
+  text-decoration: line-through;
+  color: var(--ink-dim);
+}
+
+.daily__empty {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  padding: 14px;
+  text-align: center;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-md);
+}
+.daily__empty[hidden] { display: none; }
+.daily__empty code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  background: rgba(255,255,255,0.05);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ink-dim);
+}
+
+/* =====================================================
+   Q2 · AI FEED slideshow
+   ===================================================== */
+
+#q-feed {
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "slide";
+}
+#q-feed .q-header { grid-area: header; }
+#q-feed .slide    { grid-area: slide; }
+
+/* BRAND · 12 (revised again) — 2-column slide: square media on the
+   left, stacked source/title/desc/footer on the right. This removes
+   the "tall narrow column" problem entirely: instead of fighting for
+   vertical space inside a narrow cell, we use the horizontal space
+   that was previously wasted, and the body now has the full cell
+   height for title + description. */
+.slide {
+  position: relative;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  display: grid;
+  grid-template-columns: 156px 1fr;
+  grid-template-rows: 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.slide[data-state="empty"] .slide__source,
+.slide[data-state="empty"] .slide__desc,
+.slide[data-state="empty"] .slide__footer { opacity: 0.4; }
+
+/* Square-ish media tile pinned to the left column. Width is fixed,
+   but it stretches to the full row height so the image always crops
+   nicely regardless of how tall the right-side text grows. */
+.slide__media {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+  width: 156px;
+  height: 100%;
+  align-self: stretch;
+  background: linear-gradient(135deg, #2a2a2a 0%, #161616 100%);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+}
+
+.slide__placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 56px;
+  color: rgba(245,239,231,0.22);
+  letter-spacing: -0.05em;
+  z-index: 1;
+}
+
+.slide__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+  z-index: 2;
+}
+.slide[data-has-image="true"] .slide__img { display: block; }
+.slide[data-has-image="true"] .slide__placeholder { display: none; }
+
+.slide__media-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0,0,0,0) 60%, rgba(0,0,0,0.45) 100%);
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Right column — stacked content. Reserve a bit of bottom padding for
+   the progress bar that's positioned absolutely on .slide and spans
+   both columns. */
+.slide__body {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.slide__source {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--violet);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+  flex: 0 0 auto;
+}
+
+/* Title gets priority — up to 3 lines. With the 2-column layout the
+   horizontal space-per-line is smaller, but we have the full cell
+   height so the title can grow taller without crowding the desc. */
+.slide__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.28;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  flex: 0 0 auto;
+}
+
+.slide__desc {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+
+.slide__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+/* No-wrap dot strip — at 18 items the dots used to wrap onto a second
+   row in the narrow column, stealing height from the description. */
+.slide__dots {
+  display: flex;
+  gap: 3px;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  max-width: 75%;
+}
+.slide__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  flex: 0 0 4px;
+  transition: background 0.3s ease, transform 0.3s ease;
+}
+.slide__dot--active {
+  background: var(--violet);
+  transform: scale(1.3);
+}
+
+.slide__counter {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.slide__progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255,255,255,0.05);
+  z-index: 4;
+}
+.slide__progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--violet);
+  transition: width linear;
+}
+
+/* =====================================================
+   Task card (kanban lanes)
+   ===================================================== */
+
+.task {
+  position: relative;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 9px 11px 9px 13px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  align-items: start;
+}
+
+/* Left-edge tier stripe driven by snap.tasks[].tier (computed on the
+   server in widgets/nudges.py). 'later' and 'none' get no stripe. */
+.task::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+}
+.task--tier-soon::before    { background: var(--cream); }
+.task--tier-today::before   { background: var(--red); }
+.task--tier-overdue::before { background: var(--red-deep); }
+
+.task__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+.task__urgency {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+  margin-top: 5px;
+}
+.task__urgency--urgent { background: var(--red); }
+
+.task__meta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.task__deadline {
+  background: rgba(255,255,255,0.06);
+  color: var(--ink-dim);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  border: 1px solid var(--line-2);
+}
+.task__deadline--today   { background: var(--red);      color: var(--red-ink);  border-color: transparent; }
+.task__deadline--overdue { background: var(--red-deep); color: var(--red-ink);  border-color: transparent; }
+
+.task__priority { font-weight: 700; color: var(--ink-faint); }
+.task__priority--high   { color: var(--red); }
+.task__priority--medium { color: var(--cream); }
+
+.task__desc { color: var(--ink-faint); text-transform: none; letter-spacing: 0; }
+
+.task--done .task__title { text-decoration: line-through; opacity: 0.55; }
+
+.empty {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 12px 4px;
+  text-align: center;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-md);
+}
+
+/* =====================================================
+   FOCUS · 06 — Pomodoro / focus timer band
+   Now lives in the kanban quadrant footer (BRAND · 12). The dedicated
+   FOCUS · 00 cell was removed; this band is compact enough to sit
+   under the lanes without stealing room from them.
+   ===================================================== */
+
+.timer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "phase label count"
+    "meta  meta  meta";
+  align-items: center;
+  gap: 2px 10px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(239, 229, 212, 0.18);
+  border-radius: 6px;
+  background: rgba(239, 229, 212, 0.04);
+}
+
+.timer[hidden] { display: none; }
+
+.timer__row {
+  grid-column: 1 / span 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.timer__phase {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cream);
+  background: rgba(239, 229, 212, 0.08);
+  border-radius: 3px;
+}
+
+.timer__phase--break {
+  color: var(--ink-dim);
+  background: rgba(245, 239, 231, 0.05);
+}
+
+.timer__label {
+  font-size: 11px;
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timer__count {
+  grid-area: count;
+  font-family: "Times New Roman", Georgia, serif;
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.timer__meta {
+  grid-area: meta;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.timer--paused .timer__count { color: var(--ink-dim); }
+.timer--break  .timer__count { color: var(--cream); }
+
+/* =====================================================
+   Connection pill
+   ===================================================== */
+
+.conn-pill {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  pointer-events: none;
+  z-index: 10;
+}
+.conn-pill--on  { background: rgba(60, 200, 130, 0.18); color: #6ee7a7; }
+.conn-pill--off { background: rgba(220, 80, 80, 0.18); color: #f99; }
+
+/* =====================================================
+   DISPATCH · 12 — last received Telegram / CLI prompt
+   Thin band at the top of the right column. Shows the raw input text
+   (truncated to 240 chars by dispatch_history) plus a verb chip + age.
+   ===================================================== */
+
+#q-dispatch {
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "body";
+  padding: 10px 16px 10px;
+  gap: 4px;
+}
+#q-dispatch .q-header { grid-area: header; padding-bottom: 2px; }
+#q-dispatch .dispatch { grid-area: body; }
+
+/* BRAND \u00b7 12 (revised) — dispatch body uses a 2-row grid where the
+   italic prompt gets all leftover space and the meta row is auto.
+   Aligning the prompt to the top (was bottom) keeps it close to the
+   header so the eye reads header → quote → meta naturally. */
+.dispatch {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dispatch__text {
+  margin: 0;
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.22;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  align-self: start;
+}
+.dispatch__text::before { content: "\201c"; color: var(--cream); margin-right: 1px; }
+.dispatch__text::after  { content: "\201d"; color: var(--cream); margin-left: 1px; }
+
+.dispatch[data-state="empty"] .dispatch__text {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+.dispatch[data-state="empty"] .dispatch__text::before,
+.dispatch[data-state="empty"] .dispatch__text::after { content: ""; }
+
+.dispatch__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dispatch__verb {
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--cell-accent, var(--ink));
+  flex: 0 0 auto;
+}
+/* Mirror the ribbon outcome states so success / error / undo share visual
+   grammar with the bottom-left ribbon. */
+.dispatch--err  .dispatch__verb { color: #f99; }
+.dispatch--undo .dispatch__verb { color: var(--cream); }
+.dispatch--ok   .dispatch__verb { color: var(--cell-accent, var(--ink)); }
+
+.dispatch__sep {
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+}
+
+.dispatch__subject {
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.dispatch__age {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+}
+
+/* The chip in the header doubles as an outcome dot, mirroring the
+   bottom-left ribbon's pip semantics. The dot colour is driven by an
+   explicit class set in `renderLastCommand` — simpler + more targeted
+   than relying on a sibling combinator from .dispatch. */
+#dispatch-chip {
+  position: relative;
+  padding-left: 18px;
+}
+#dispatch-chip::before {
+  content: "";
+  position: absolute;
+  left: 8px; top: 50%;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transform: translateY(-50%);
+}
+#dispatch-chip.dispatch__chip--ok::before   { background: #6ee7a7; }
+#dispatch-chip.dispatch__chip--err::before  { background: #f99; }
+#dispatch-chip.dispatch__chip--undo::before { background: var(--cream); }
+
+/* =====================================================
+   RECENT · 09 — dispatch history ribbon (bottom-left)
+   ===================================================== */
+
+.ribbon {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  z-index: 9;
+  background: rgba(20, 20, 20, 0.92);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 8px 12px 9px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  max-width: 720px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.ribbon[hidden] { display: none; }
+
+.ribbon__eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ribbon__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.ribbon__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  min-width: 0;
+  max-width: 240px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ribbon__item + .ribbon__item {
+  border-left: 1px solid var(--line-2);
+  padding-left: 14px;
+}
+
+.ribbon__pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex: 0 0 6px;
+}
+.ribbon__pip--ok    { background: #6ee7a7; }
+.ribbon__pip--err   { background: #f99; }
+.ribbon__pip--undo  { background: var(--cream); }
+
+.ribbon__verb {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.ribbon__verb--ok   { color: var(--ink); }
+.ribbon__verb--err  { color: #f99; }
+.ribbon__verb--undo { color: var(--cream); }
+
+.ribbon__subject {
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.ribbon__age {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+.ribbon__hint {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cream);
+  font-weight: 700;
+  border: 1px solid rgba(239,229,212,0.4);
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+/* QUOTE · 05 ribbon was retired in BRAND · 12. The .quote* class block was
+   removed; the renderer is now a no-op. Dispatch input is the new bottom
+   ribbon's job (see DISPATCH · 12 below). */
+
+/* =====================================================
+   RETRO · 07 — weekly retro card (Sunday only · bottom-right grid cell)
+
+   Lives as a real quadrant in the right column instead of a floating
+   overlay, so it never collides with the calendar or daily checklist.
+   The right-column :has(#q-retro[hidden]) rule reflows the column on
+   non-Sundays so the feed + checklist take the freed-up space.
+   ===================================================== */
+
+#q-retro {
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "header"
+    "stats"
+    "strip"
+    "caption";
+  padding: 14px 18px 14px;
+}
+#q-retro .q-header   { grid-area: header; padding-bottom: 4px; }
+#q-retro .retro__stats   { grid-area: stats; }
+#q-retro .retro__strip   { grid-area: strip; }
+#q-retro .retro__caption { grid-area: caption; }
+
+#q-retro[hidden] { display: none; }
+
+.retro__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 4px;
+}
+
+.retro__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.retro__stat-value {
+  font-family: "Times New Roman", Georgia, serif;
+  font-style: italic;
+  font-size: 30px;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.retro__stat-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+
+.retro__strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  align-items: end;
+  margin-top: 6px;
+  min-height: 0;
+}
+
+.retro__bar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+
+.retro__bar-fill {
+  width: 100%;
+  height: 100%;
+  min-height: 28px;
+  border-radius: 4px;
+  background: rgba(200, 154, 74, 0.10);
+  border: 1px solid rgba(200, 154, 74, 0.22);
+  position: relative;
+  overflow: hidden;
+}
+
+.retro__bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: var(--retro-fill, 0%);
+  background: var(--amber);
+  opacity: 0.78;
+  border-radius: inherit;
+  transition: height 0.4s ease;
+}
+
+.retro__bar--today .retro__bar-fill {
+  border-color: rgba(200, 154, 74, 0.55);
+}
+
+.retro__bar-label {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+  text-align: center;
+}
+
+.retro__caption {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* =====================================================
+   VITALS · 08 — system health badge strip (top-right)
+   ===================================================== */
+
+.health {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 12px;
+  background: rgba(20, 20, 20, 0.78);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+}
+.health[hidden] { display: none; }
+
+.health__eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+  padding-right: 4px;
+  border-right: 1px solid var(--line);
+}
+
+.health__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.health__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+  cursor: help;
+}
+
+.health__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(239, 229, 212, 0.32);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.health__badge--ok .health__dot {
+  background: var(--cream);
+  box-shadow: 0 0 6px rgba(239, 229, 212, 0.55);
+}
+.health__badge--ok .health__label { color: var(--ink); }
+
+.health__badge--degraded .health__dot {
+  background: var(--blue);
+  box-shadow: 0 0 6px rgba(98, 138, 200, 0.5);
+}
+.health__badge--degraded .health__label { color: var(--blue); }
+
+.health__badge--down .health__dot {
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(196, 80, 60, 0.65);
+}
+.health__badge--down .health__label { color: var(--red); }
+
+.health__badge--unknown .health__dot {
+  background: rgba(239, 229, 212, 0.18);
+}
+
+/* Wrap the strip with a subtle outline tint that matches the worst tier. */
+.health--down {
+  border-color: rgba(196, 80, 60, 0.55);
+}
+.health--degraded {
+  border-color: rgba(98, 138, 200, 0.42);
+}

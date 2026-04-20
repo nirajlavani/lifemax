@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd template for the lifemax dashboard.
+
+  Edit the absolute paths below if your repo lives elsewhere on the Mac mini.
+  The PYTHONPATH key tells Python where to find the `lifemax` package.
+
+  Install:
+    ln -sf "$PWD/launchd/com.lifemax.dashboard.plist" ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.lifemax.dashboard.plist
+
+  Stop:
+    launchctl unload ~/Library/LaunchAgents/com.lifemax.dashboard.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.lifemax.dashboard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/nirajlavani/Documents/small_proj/lifemax_dashboard/.venv/bin/python</string>
+      <string>-m</string>
+      <string>lifemax.main</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/nirajlavani/Documents/small_proj/lifemax_dashboard</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PYTHONPATH</key>
+      <string>/Users/nirajlavani/Documents/small_proj/lifemax_dashboard/src</string>
+      <key>PYTHONUNBUFFERED</key>
+      <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/nirajlavani/Documents/small_proj/lifemax_dashboard/data/logs/lifemax.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/nirajlavani/Documents/small_proj/lifemax_dashboard/data/logs/lifemax.err.log</string>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+  </dict>
+</plist>
